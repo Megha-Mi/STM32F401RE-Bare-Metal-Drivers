@@ -63,6 +63,28 @@ while (1) {
 }
 ```
 
+### 4. Experiment: push-pull vs open-drain on LD2
+Same application, only the output type and pull-up/pull-down settings changed. LD2 is wired `PA5 → R31 → LD2 → GND` (active-high).
+
+| Configuration | `GPIO_PinOPType` | `GPIO_PinPuPdControl` | Result on LD2 |
+|---|---|---|---|
+| Push-pull | `GPIO_OP_TYPE_PP` | `GPIO_NO_PUPD` | Blinks normally |
+| Open-drain, no pull-up | `GPIO_OP_TYPE_OD` | `GPIO_NO_PUPD` | **Never lights**: the pin can only sink current; for HIGH it floats |
+| Open-drain + internal pull-up | `GPIO_OP_TYPE_OD` | `GPIO_PIN_PU` | **Very faint glow**: the ~40 kΩ internal pull-up allows only about 30 µA |
+
+To get full brightness in open-drain mode, add a small external pull-up (about 470 Ω) from PA5 (Arduino D13) to **3V3**.
+
+**Register check.** These are GPIOA registers read from the running chip over SWD (`STM32_Programmer_CLI -c port=SWD mode=HOTPLUG -r32 0x40020000 0x18`), with open-drain and the internal pull-up enabled:
+
+| Register | Value | PA5 field |
+|---|---|---|
+| MODER | `0xA8000400` | bits 11:10 = `01` → output |
+| OTYPER | `0x00000020` | bit 5 = `1` → open-drain |
+| OSPEEDR | `0x0C000800` | bits 11:10 = `10` → fast |
+| PUPDR | `0x64000400` | bits 11:10 = `01` → pull-up |
+
+The upper bits (`0xA8...`, `0x64...`) are the reset values of PA13–PA15, the SWD debug pins. They are unchanged, which confirms that `GPIO_Init()` only modifies the selected pin.
+
 ---
 
 ## Key lessons learned
@@ -71,6 +93,8 @@ while (1) {
 - **Clock first:** a peripheral's registers cannot be written until its clock is enabled in RCC.
 - **Reserved registers matter:** missing placeholders in a register struct shift every following register to the wrong address.
 - **Alternate function mapping:** register = `pin / 8` (AFRL/AFRH), bit position = `4 * (pin % 8)`.
+- **Push-pull vs open-drain:** push-pull drives both levels. Open-drain only pulls low and needs a pull-up to output HIGH. Use push-pull by default, and open-drain for shared lines such as I2C.
+- **Board labels are not MCU pin names:** header pin D13 is PA5. Check the board user manual (UM1724) or the schematic.
 
 ---
 
